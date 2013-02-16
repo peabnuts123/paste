@@ -8,7 +8,7 @@
 # Intellij files
 
 .idea
-.iml
+*.iml
 
 # Output
 target
