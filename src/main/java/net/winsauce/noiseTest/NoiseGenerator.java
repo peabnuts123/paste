@@ -5,18 +5,17 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.sun.istack.internal.Nullable;
-import libnoise.NoiseGen;
-import libnoise.module.*;
+import libnoise.module.Multiply;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
 
 /**
- * Created by Brian
+ * Created by Brian McGee
  */
 public class NoiseGenerator {
 
@@ -24,7 +23,7 @@ public class NoiseGenerator {
 
     private final int noThreads;
 
-    // It makes sense for this executor to be common across all components i.e. a system wide executor for async tasks
+    // This executor should probably be a shared system wide executor which can be used for any async tasks across all components
     private ListeningExecutorService executor;
     private Multiply generator;
 
@@ -41,6 +40,16 @@ public class NoiseGenerator {
         }
     }
 
+    /**
+     * This method performs a 2D de-composition of the problem, sub-dividing it into cells of xChunkSize * yChunkSize
+     * and then scheduling those cells for calculation in a shared executor service.
+     *
+     * @param totalX        Total width of the problem space
+     * @param xChunkSize    Determines how the problem space is chunked in the x axis
+     * @param totalZ        Total height of the problem space
+     * @param zChunkSize    Determines how the probelm space is chunked in the z axis
+     * @return
+     */
     public ListenableFuture<float[][]> generate(int totalX, int xChunkSize, int totalZ, int zChunkSize){
 
         // 2D decomposition of the problem space
@@ -78,7 +87,7 @@ public class NoiseGenerator {
         final ListenableFuture<List<Object>> futureAll = Futures.allAsList(futures);
         final ListenableFuture<float[][]> resultFuture = Futures.transform(futureAll, new Function<List<Object>, float[][]>() {
             @Override
-            public float[][] apply(@Nullable List<Object> objects) {
+            public float[][] apply(List<Object> objects) {
                 return result;
             }
         });
@@ -86,6 +95,9 @@ public class NoiseGenerator {
         return resultFuture;
     }
 
+    /**
+     * Restricts the section of the global result array that each thread calculates noise for
+     */
     private class GenerateConfig {
 
         int totalX = 0;
@@ -112,10 +124,15 @@ public class NoiseGenerator {
         }
     }
 
+    /**
+     * A task which generates the noise for a given cell
+     *
+     * Implements Callable although it doesn't return a value, this is to allow for use of Guava's Futures utilities.
+     */
     private final class GenerateTask implements Callable<Object> {
 
-        private final float[][] result;
-        private final GenerateConfig config;
+        private final float[][] result;         // Global array into which each thread writes values for it's cell
+        private final GenerateConfig config;    // Config which determines the cell size
 
         private GenerateTask(float[][] result, GenerateConfig config) {
             this.result = result;
